@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/css/materialize.css">
   <script type="text/javascript" src="https://code.jquery.com/jquery-2.1.1.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/0.100.2/js/materialize.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
 </head>
 <body>
   <div id="navbar"></div>
@@ -16,25 +17,81 @@
     <div class="progress" id="loader">
       <div class="indeterminate"></div>
     </div>
+    
     <div style="position: relative" class="margin">
       <video onloadedmetadata="onPlay(this)" id="inputVideo" autoplay muted playsinline></video>
       <canvas id="overlay" />
     </div>
 
-    <!-- Hash Facial Display -->
+    <!-- Controles de Hash -->
     <div class="row" style="margin-top: 20px;">
       <div class="col s12">
         <div class="card">
           <div class="card-content">
-            <span class="card-title">Hash Facial</span>
-            <div id="faceHashDisplay" style="word-break: break-all; font-family: monospace; font-size: 12px; background-color: #f5f5f5; padding: 10px; border-radius: 4px;">
-              Aguardando detecção de rosto...
+            <span class="card-title">Configurações de Hash</span>
+            <div class="row">
+              <div class="col s6">
+                <label>Tipo de Hash:</label>
+                <select id="hashType" onchange="updateHashDisplay()">
+                  <option value="simple">Hash Simples</option>
+                  <option value="sha256">SHA-256</option>
+                  <option value="md5">MD5</option>
+                  <option value="base64">Base64</option>
+                  <option value="hex">Hexadecimal</option>
+                </select>
+              </div>
+              <div class="col s6">
+                <label>Comprimento do Hash:</label>
+                <select id="hashLength" onchange="updateHashDisplay()">
+                  <option value="16">16 caracteres</option>
+                  <option value="32">32 caracteres</option>
+                  <option value="64">64 caracteres</option>
+                  <option value="full">Completo</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
       </div>
     </div>
-    <!-- Hash Facial Display -->
+
+    <!-- Exibição do Hash -->
+    <div class="row" style="margin-top: 20px;">
+      <div class="col s12">
+        <div class="card">
+          <div class="card-content">
+            <span class="card-title">Hash Facial</span>
+            <div id="faceHashDisplay" style="word-break: break-all; font-family: monospace; font-size: 12px; background-color: #f5f5f5; padding: 10px; border-radius: 4px; min-height: 100px;">
+              Aguardando detecção de rosto...
+            </div>
+            <div style="margin-top: 10px;">
+              <button class="btn waves-effect waves-light" onclick="copyHash()">
+                <i class="material-icons left">content_copy</i>
+                Copiar Hash
+              </button>
+              <button class="btn waves-effect waves-light" onclick="saveHash()">
+                <i class="material-icons left">save</i>
+                Salvar Hash
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Histórico de Hashes -->
+    <div class="row" style="margin-top: 20px;">
+      <div class="col s12">
+        <div class="card">
+          <div class="card-content">
+            <span class="card-title">Histórico de Hashes</span>
+            <div id="hashHistory" style="max-height: 200px; overflow-y: auto;">
+              <p>Nenhum hash salvo ainda.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <div class="row side-by-side">
 
@@ -67,7 +124,6 @@
       <!-- fps_meter -->
 
     </div>
-
 
     <!-- ssd_mobilenetv1_controls -->
     <span id="ssd_mobilenetv1_controls">
@@ -134,33 +190,108 @@
     let forwardTimes = []
     let withBoxes = true
     let lastFaceHash = null
+    let lastDescriptor = null
+    let hashHistory = []
 
-    // Função para gerar hash a partir do descriptor facial
-    function generateFaceHash(descriptor) {
+    // Função para gerar hash simples
+    function generateSimpleHash(descriptor) {
       if (!descriptor || descriptor.length === 0) {
         return null
       }
       
-      // Converte o descriptor Float32Array para string
       const descriptorString = Array.from(descriptor).join(',')
-      
-      // Gera um hash simples usando uma função hash básica
       let hash = 0
       for (let i = 0; i < descriptorString.length; i++) {
         const char = descriptorString.charCodeAt(i)
         hash = ((hash << 5) - hash) + char
-        hash = hash & hash // Converte para 32-bit integer
+        hash = hash & hash
       }
       
-      // Converte para hexadecimal e adiciona zeros à esquerda
       const hexHash = Math.abs(hash).toString(16).padStart(8, '0')
-      
-      // Cria um hash mais longo combinando múltiplos valores do descriptor
       const additionalHash = descriptor.slice(0, 16).reduce((acc, val, idx) => {
         return acc + (Math.abs(val * 1000) % 256).toString(16).padStart(2, '0')
       }, '')
       
       return `${hexHash}${additionalHash}`
+    }
+
+    // Função para gerar hash SHA-256
+    function generateSHA256Hash(descriptor) {
+      if (!descriptor || descriptor.length === 0) {
+        return null
+      }
+      
+      const descriptorString = Array.from(descriptor).join(',')
+      return CryptoJS.SHA256(descriptorString).toString()
+    }
+
+    // Função para gerar hash MD5
+    function generateMD5Hash(descriptor) {
+      if (!descriptor || descriptor.length === 0) {
+        return null
+      }
+      
+      const descriptorString = Array.from(descriptor).join(',')
+      return CryptoJS.MD5(descriptorString).toString()
+    }
+
+    // Função para gerar hash Base64
+    function generateBase64Hash(descriptor) {
+      if (!descriptor || descriptor.length === 0) {
+        return null
+      }
+      
+      const descriptorString = Array.from(descriptor).join(',')
+      return btoa(descriptorString)
+    }
+
+    // Função para gerar hash Hexadecimal
+    function generateHexHash(descriptor) {
+      if (!descriptor || descriptor.length === 0) {
+        return null
+      }
+      
+      return Array.from(descriptor).map(val => 
+        Math.abs(val * 1000).toString(16).padStart(4, '0')
+      ).join('')
+    }
+
+    // Função principal para gerar hash
+    function generateFaceHash(descriptor) {
+      if (!descriptor || descriptor.length === 0) {
+        return null
+      }
+      
+      const hashType = $('#hashType').val()
+      let hash = null
+      
+      switch (hashType) {
+        case 'simple':
+          hash = generateSimpleHash(descriptor)
+          break
+        case 'sha256':
+          hash = generateSHA256Hash(descriptor)
+          break
+        case 'md5':
+          hash = generateMD5Hash(descriptor)
+          break
+        case 'base64':
+          hash = generateBase64Hash(descriptor)
+          break
+        case 'hex':
+          hash = generateHexHash(descriptor)
+          break
+        default:
+          hash = generateSimpleHash(descriptor)
+      }
+      
+      // Aplica o comprimento selecionado
+      const hashLength = $('#hashLength').val()
+      if (hashLength !== 'full' && hash.length > parseInt(hashLength)) {
+        hash = hash.substring(0, parseInt(hashLength))
+      }
+      
+      return hash
     }
 
     // Função para atualizar a exibição do hash
@@ -170,14 +301,87 @@
       
       if (hash) {
         lastFaceHash = hash
+        lastDescriptor = descriptor
+        
+        const hashType = $('#hashType').val()
+        const hashLength = $('#hashLength').val()
+        
         displayElement.html(`
+          <strong>Tipo:</strong> ${hashType.toUpperCase()}<br>
+          <strong>Comprimento:</strong> ${hashLength === 'full' ? 'Completo' : hashLength + ' caracteres'}<br>
           <strong>Hash Facial:</strong><br>
-          <span style="color: #2196F3;">${hash}</span><br><br>
-          <strong>Descriptor:</strong><br>
+          <span style="color: #2196F3; font-weight: bold;">${hash}</span><br><br>
+          <strong>Descriptor (primeiros 10 valores):</strong><br>
           <span style="font-size: 10px; color: #666;">${descriptor.slice(0, 10).join(', ')}...</span>
         `)
       } else {
         displayElement.html('Nenhum rosto detectado')
+      }
+    }
+
+    // Função para copiar hash
+    function copyHash() {
+      if (lastFaceHash) {
+        navigator.clipboard.writeText(lastFaceHash).then(() => {
+          M.toast({html: 'Hash copiado para a área de transferência!'})
+        }).catch(() => {
+          M.toast({html: 'Erro ao copiar hash'})
+        })
+      } else {
+        M.toast({html: 'Nenhum hash disponível para copiar'})
+      }
+    }
+
+    // Função para salvar hash
+    function saveHash() {
+      if (lastFaceHash && lastDescriptor) {
+        const hashEntry = {
+          timestamp: new Date().toLocaleString('pt-BR'),
+          hash: lastFaceHash,
+          type: $('#hashType').val(),
+          length: $('#hashLength').val(),
+          descriptor: Array.from(lastDescriptor)
+        }
+        
+        hashHistory.push(hashEntry)
+        updateHashHistory()
+        
+        // Salva no localStorage
+        localStorage.setItem('faceHashHistory', JSON.stringify(hashHistory))
+        
+        M.toast({html: 'Hash salvo no histórico!'})
+      } else {
+        M.toast({html: 'Nenhum hash disponível para salvar'})
+      }
+    }
+
+    // Função para atualizar histórico
+    function updateHashHistory() {
+      const historyElement = $('#hashHistory')
+      
+      if (hashHistory.length === 0) {
+        historyElement.html('<p>Nenhum hash salvo ainda.</p>')
+        return
+      }
+      
+      let historyHTML = ''
+      hashHistory.slice(-5).reverse().forEach((entry, index) => {
+        historyHTML += `
+          <div style="border-bottom: 1px solid #eee; padding: 10px 0;">
+            <strong>${entry.timestamp}</strong><br>
+            <span style="color: #2196F3; font-family: monospace; font-size: 11px;">${entry.hash}</span><br>
+            <small>Tipo: ${entry.type.toUpperCase()} | Comprimento: ${entry.length}</small>
+          </div>
+        `
+      })
+      
+      historyElement.html(historyHTML)
+    }
+
+    // Função para atualizar exibição quando configurações mudam
+    function updateHashDisplay() {
+      if (lastDescriptor) {
+        updateFaceHashDisplay(lastDescriptor)
       }
     }
 
@@ -246,8 +450,16 @@
     function updateResults() {}
 
     $(document).ready(function() {
-      renderNavBar('#navbar', 'webcam_face_landmark_detection')
+      renderNavBar('#navbar', 'webcam_face_hash')
       initFaceDetectionControls()
+      
+      // Carrega histórico do localStorage
+      const savedHistory = localStorage.getItem('faceHashHistory')
+      if (savedHistory) {
+        hashHistory = JSON.parse(savedHistory)
+        updateHashHistory()
+      }
+      
       run()
     })
   </script>
